@@ -2,6 +2,15 @@
 """
 AAPL Stock Analysis and Financial Modeling Script
 Analyzes Apple stock with technical indicators and predictive modeling
+
+CHANGELOG
+=========
+Version History             Author          Date
+@changelog   1.0.0                  WP              29-12-2025
+
+
+Format: [Version] - Date
+Types: Added, Changed, Deprecated, Removed, Fixed, Security
 """
 
 import pandas as pd
