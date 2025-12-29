@@ -8,9 +8,7 @@ CHANGELOG
 Version History             Author          Date
 @changelog   1.0.0                  WP              29-12-2025
 
-
-Format: [Version] - Date
-Types: Added, Changed, Deprecated, Removed, Fixed, Security
+- Initial version: Fetches AAPL stock data, computes technical indicators,
 """
 
 import pandas as pd
@@ -35,12 +33,12 @@ except ImportError as e:
     exit(1)
 
 
-class AAPLStockAnalyzer:
-    """Comprehensive AAPL stock analyzer with predictive modeling"""
+class StockAnalyzer:
+    """Comprehensive stock analyzer with predictive modeling"""
 
-    def __init__(self, start_date=None, end_date=None):
-        """Initialize analyzer with date range"""
-        self.ticker = "AAPL"
+    def __init__(self, ticker="AAPL", start_date=None, end_date=None):
+        """Initialize analyzer with ticker symbol and date range"""
+        self.ticker = ticker.upper()
         # Use today as end date - yfinance will fetch up to the last trading day
         today = datetime.now()
         self.end_date = end_date or today.strftime('%Y-%m-%d')
@@ -52,27 +50,69 @@ class AAPLStockAnalyzer:
     def fetch_data(self):
         """Fetch historical stock data from Yahoo Finance"""
         print(f"Fetching {self.ticker} data from {self.start_date} to {self.end_date}...")
+
+        # Method 1: Try Ticker object with history method
         try:
-            # Try using yf.download first with SSL verification disabled
-            import ssl
-            ssl._create_default_https_context = ssl._create_unverified_context
+            print("Attempting to fetch data using yfinance Ticker...")
+            stock = yf.Ticker(self.ticker)
+            self.data = stock.history(start=self.start_date, end=self.end_date, auto_adjust=True)
 
-            self.data = yf.download(self.ticker, start=self.start_date, end=self.end_date, progress=False)
+            if not self.data.empty:
+                print(f"Successfully fetched data using Ticker method")
+                # Ensure we have the required columns
+                if 'Close' in self.data.columns:
+                    self.data = self.data
+                else:
+                    raise ValueError("Missing required columns in data")
+            else:
+                raise ValueError("Empty data returned from Ticker method")
 
-            if self.data.empty:
-                # Fallback to Ticker method
-                stock = yf.Ticker(self.ticker)
-                self.data = stock.history(start=self.start_date, end=self.end_date)
-        except Exception as e:
-            print(f"Warning: Error fetching live data: {e}")
-            print("Attempting alternative data source...")
+        except Exception as e1:
+            print(f"Ticker method failed: {e1}")
+
+            # Method 2: Try download with different parameters
             try:
-                # Use pandas_datareader as alternative
-                import pandas_datareader as pdr
-                self.data = pdr.get_data_yahoo(self.ticker, start=self.start_date, end=self.end_date)
-            except:
-                print("Alternative source also failed.")
-                raise ValueError("Unable to fetch stock data. This may be due to SSL/network issues.")
+                print("Attempting to fetch data using yf.download...")
+                import ssl
+                ssl._create_default_https_context = ssl._create_unverified_context
+
+                self.data = yf.download(
+                    self.ticker,
+                    start=self.start_date,
+                    end=self.end_date,
+                    progress=False,
+                    auto_adjust=True,
+                    repair=True
+                )
+
+                if not self.data.empty:
+                    print(f"Successfully fetched data using download method")
+                else:
+                    raise ValueError("Empty data returned from download method")
+
+            except Exception as e2:
+                print(f"Download method also failed: {e2}")
+
+                # Method 3: Try with period instead of dates
+                try:
+                    print("Attempting to fetch data using period parameter...")
+                    stock = yf.Ticker(self.ticker)
+                    self.data = stock.history(period="2y", auto_adjust=True)
+
+                    if not self.data.empty:
+                        print(f"Successfully fetched data using period method")
+                    else:
+                        raise ValueError("All methods failed to fetch data")
+
+                except Exception as e3:
+                    print(f"Period method also failed: {e3}")
+                    raise ValueError(
+                        "Unable to fetch stock data. Possible causes:\n"
+                        "1. Network/firewall issues\n"
+                        "2. Yahoo Finance API issues\n"
+                        "3. yfinance package needs updating (try: pip install --upgrade yfinance)\n"
+                        f"Last error: {e3}"
+                    )
 
         if self.data.empty:
             raise ValueError("No data fetched. Check your date range and internet connection.")
@@ -307,7 +347,7 @@ class AAPLStockAnalyzer:
         ax1.plot(self.data.index, self.data['SMA_20'], label='SMA 20', alpha=0.7)
         ax1.plot(self.data.index, self.data['SMA_50'], label='SMA 50', alpha=0.7)
         ax1.plot(self.data.index, self.data['SMA_200'], label='SMA 200', alpha=0.7)
-        ax1.set_title('AAPL Price with Moving Averages', fontsize=12, fontweight='bold')
+        ax1.set_title(f'{self.ticker} Price with Moving Averages', fontsize=12, fontweight='bold')
         ax1.set_xlabel('Date')
         ax1.set_ylabel('Price ($)')
         ax1.legend()
@@ -395,14 +435,15 @@ class AAPLStockAnalyzer:
         ax9.grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plt.savefig('aapl_analysis.png', dpi=300, bbox_inches='tight')
-        print("Visualization saved as 'aapl_analysis.png'")
+        filename = f'{self.ticker.lower()}_analysis.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"Visualization saved as '{filename}'")
         plt.show()
 
     def generate_report(self):
         """Generate comprehensive analysis report"""
         print("\n" + "="*80)
-        print(f"AAPL STOCK ANALYSIS REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{self.ticker} STOCK ANALYSIS REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*80)
 
         latest = self.data.iloc[-1]
@@ -465,12 +506,19 @@ class AAPLStockAnalyzer:
 
 def main():
     """Main execution function"""
+    import sys
+
+    # Parse command line arguments
+    ticker = "AAPL"  # Default ticker
+    if len(sys.argv) > 1:
+        ticker = sys.argv[1].upper()
+
     print("="*80)
-    print("AAPL STOCK ANALYZER - Financial Modeling & Technical Analysis")
+    print(f"{ticker} STOCK ANALYZER - Financial Modeling & Technical Analysis")
     print("="*80)
 
     # Initialize analyzer (default: last 2 years)
-    analyzer = AAPLStockAnalyzer()
+    analyzer = StockAnalyzer(ticker=ticker)
 
     try:
         # Fetch data
@@ -491,7 +539,7 @@ def main():
         # Create visualizations
         analyzer.visualize_analysis()
 
-        print("\nAnalysis complete! Check 'aapl_analysis.png' for visualizations.")
+        print(f"\nAnalysis complete! Check '{ticker.lower()}_analysis.png' for visualizations.")
 
     except Exception as e:
         print(f"\nError during analysis: {e}")
