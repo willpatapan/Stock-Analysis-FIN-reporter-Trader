@@ -11,9 +11,10 @@ Performance: Tracks all trades, calculates returns, win rate, and compares vs bu
 
 <img width="1510" height="918" alt="Screenshot 2025-12-29 at 16 02 32" src="https://github.com/user-attachments/assets/5ece2e91-db94-465a-be70-c05a57515f68" />
 
+**Multi Stock Trading Results**
+
 <img width="5970" height="3546" alt="multi_stock_trading_results" src="https://github.com/user-attachments/assets/3012fe88-47e5-477c-9ad6-472b1ed95045" />
 
-CSV Raw data.
 
 [multi_stock_results.csv](https://github.com/user-attachments/files/24364757/multi_stock_results.csv)
 Ticker,Total Trades,Win Rate,Bot Return (%),Buy & Hold Return (%),Excess Return (%),Sharpe Ratio,Max Drawdown (%),Final Value,Profit/Loss
