@@ -52,27 +52,69 @@ class AAPLStockAnalyzer:
     def fetch_data(self):
         """Fetch historical stock data from Yahoo Finance"""
         print(f"Fetching {self.ticker} data from {self.start_date} to {self.end_date}...")
+
+        # Method 1: Try Ticker object with history method
         try:
-            # Try using yf.download first with SSL verification disabled
-            import ssl
-            ssl._create_default_https_context = ssl._create_unverified_context
+            print("Attempting to fetch data using yfinance Ticker...")
+            stock = yf.Ticker(self.ticker)
+            self.data = stock.history(start=self.start_date, end=self.end_date, auto_adjust=True)
 
-            self.data = yf.download(self.ticker, start=self.start_date, end=self.end_date, progress=False)
+            if not self.data.empty:
+                print(f"Successfully fetched data using Ticker method")
+                # Ensure we have the required columns
+                if 'Close' in self.data.columns:
+                    self.data = self.data
+                else:
+                    raise ValueError("Missing required columns in data")
+            else:
+                raise ValueError("Empty data returned from Ticker method")
 
-            if self.data.empty:
-                # Fallback to Ticker method
-                stock = yf.Ticker(self.ticker)
-                self.data = stock.history(start=self.start_date, end=self.end_date)
-        except Exception as e:
-            print(f"Warning: Error fetching live data: {e}")
-            print("Attempting alternative data source...")
+        except Exception as e1:
+            print(f"Ticker method failed: {e1}")
+
+            # Method 2: Try download with different parameters
             try:
-                # Use pandas_datareader as alternative
-                import pandas_datareader as pdr
-                self.data = pdr.get_data_yahoo(self.ticker, start=self.start_date, end=self.end_date)
-            except:
-                print("Alternative source also failed.")
-                raise ValueError("Unable to fetch stock data. This may be due to SSL/network issues.")
+                print("Attempting to fetch data using yf.download...")
+                import ssl
+                ssl._create_default_https_context = ssl._create_unverified_context
+
+                self.data = yf.download(
+                    self.ticker,
+                    start=self.start_date,
+                    end=self.end_date,
+                    progress=False,
+                    auto_adjust=True,
+                    repair=True
+                )
+
+                if not self.data.empty:
+                    print(f"Successfully fetched data using download method")
+                else:
+                    raise ValueError("Empty data returned from download method")
+
+            except Exception as e2:
+                print(f"Download method also failed: {e2}")
+
+                # Method 3: Try with period instead of dates
+                try:
+                    print("Attempting to fetch data using period parameter...")
+                    stock = yf.Ticker(self.ticker)
+                    self.data = stock.history(period="2y", auto_adjust=True)
+
+                    if not self.data.empty:
+                        print(f"Successfully fetched data using period method")
+                    else:
+                        raise ValueError("All methods failed to fetch data")
+
+                except Exception as e3:
+                    print(f"Period method also failed: {e3}")
+                    raise ValueError(
+                        "Unable to fetch stock data. Possible causes:\n"
+                        "1. Network/firewall issues\n"
+                        "2. Yahoo Finance API issues\n"
+                        "3. yfinance package needs updating (try: pip install --upgrade yfinance)\n"
+                        f"Last error: {e3}"
+                    )
 
         if self.data.empty:
             raise ValueError("No data fetched. Check your date range and internet connection.")
