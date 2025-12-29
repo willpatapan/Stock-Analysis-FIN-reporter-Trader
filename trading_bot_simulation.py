@@ -6,7 +6,7 @@ Simulates algorithmic trading with configurable parameters and risk management
 CHANGELOG
 =========
 Version History             Author          Date
-@changelog   1.0.0                  WP              29-12-2025
+@changelog   1.0.0                  WP              29-12-2025 
 
 - Initial version: Automated trading bot simulation with technical analysis,
   position sizing, risk management, and performance tracking
