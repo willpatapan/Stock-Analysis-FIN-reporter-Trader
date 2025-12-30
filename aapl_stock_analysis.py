@@ -46,6 +46,7 @@ class StockAnalyzer:
         self.data = None
         self.model = None
         self.scaler = StandardScaler()
+        self.min_data_required = 250  # Minimum trading days needed for analysis
 
     def fetch_data(self):
         """Fetch historical stock data from Yahoo Finance"""
@@ -122,6 +123,28 @@ class StockAnalyzer:
             self.data.columns = [col[0] if isinstance(col, tuple) else col for col in self.data.columns]
 
         print(f"Successfully fetched {len(self.data)} trading days of data")
+
+        # Check if we have enough data for technical analysis
+        if len(self.data) < self.min_data_required:
+            raise ValueError(
+                f"\n{'='*80}\n"
+                f"INSUFFICIENT DATA ERROR\n"
+                f"{'='*80}\n"
+                f"Stock: {self.ticker}\n"
+                f"Data points fetched: {len(self.data)}\n"
+                f"Minimum required: {self.min_data_required}\n\n"
+                f"This stock doesn't have enough trading history for technical analysis.\n"
+                f"Possible reasons:\n"
+                f"  1. Recently listed company (IPO or SPAC)\n"
+                f"  2. Delisted or suspended trading\n"
+                f"  3. Symbol may be incorrect\n\n"
+                f"Recommendations:\n"
+                f"  - Try a well-established stock like AAPL, MSFT, GOOGL, TSLA\n"
+                f"  - Check if the symbol is correct\n"
+                f"  - Wait until the stock has more trading history\n"
+                f"{'='*80}\n"
+            )
+
         return self.data
 
     def calculate_technical_indicators(self):
@@ -509,12 +532,14 @@ def main():
     import sys
 
     # Parse command line arguments
-    ticker = "AAPL"  # Default ticker
+    ticker = "AAPL"  # Default ticker (Apple Inc.)
     if len(sys.argv) > 1:
         ticker = sys.argv[1].upper()
 
     print("="*80)
     print(f"{ticker} STOCK ANALYZER - Financial Modeling & Technical Analysis")
+    print("="*80)
+    print(f"Tip: Run with any ticker symbol - python3 {sys.argv[0]} MSFT")
     print("="*80)
 
     # Initialize analyzer (default: last 2 years)
