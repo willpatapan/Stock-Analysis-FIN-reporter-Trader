@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 try:
@@ -29,14 +30,24 @@ try:
 except ImportError as e:
     print(f"Missing required package: {e}")
     print("\nPlease install required packages:")
-    print("pip install yfinance pandas numpy matplotlib seaborn scikit-learn ta")
+    print("pip install yfinance pandas numpy matplotlib seaborn scikit-learn ta finnhub-python")
     exit(1)
+
+# Optional: Finnhub for real-time data
+try:
+    import finnhub
+    FINNHUB_AVAILABLE = True
+except ImportError:
+    FINNHUB_AVAILABLE = False
+    print("\n[INFO] finnhub-python not installed. Real-time data disabled.")
+    print("Install with: pip install finnhub-python")
+    print("Get free API key at: https://finnhub.io/register\n")
 
 
 class StockAnalyzer:
     """Comprehensive stock analyzer with predictive modeling"""
 
-    def __init__(self, ticker="AAPL", start_date=None, end_date=None):
+    def __init__(self, ticker="AAPL", start_date=None, end_date=None, finnhub_api_key=None):
         """Initialize analyzer with ticker symbol and date range"""
         self.ticker = ticker.upper()
         # Use today as end date - yfinance will fetch up to the last trading day
@@ -47,6 +58,20 @@ class StockAnalyzer:
         self.model = None
         self.scaler = StandardScaler()
         self.min_data_required = 250  # Minimum trading days needed for analysis
+        
+        # Initialize Finnhub client for real-time data
+        self.finnhub_client = None
+        if FINNHUB_AVAILABLE:
+            api_key = finnhub_api_key or os.environ.get('FINNHUB_API_KEY')
+            if api_key:
+                try:
+                    self.finnhub_client = finnhub.Client(api_key=api_key)
+                    print("[✓] Finnhub real-time data enabled")
+                except Exception as e:
+                    print(f"[!] Finnhub initialization failed: {e}")
+            else:
+                print("[!] No Finnhub API key found. Set FINNHUB_API_KEY env variable or pass api_key parameter")
+                print("    Get free key at: https://finnhub.io/register")
 
     def fetch_data(self):
         """Fetch historical stock data from Yahoo Finance"""
@@ -146,6 +171,29 @@ class StockAnalyzer:
             )
 
         return self.data
+
+    def fetch_realtime_quote(self):
+        """Fetch real-time quote from Finnhub API"""
+        if not self.finnhub_client:
+            return None
+        
+        try:
+            quote = self.finnhub_client.quote(self.ticker)
+            if quote and quote.get('c'):  # 'c' is current price
+                return {
+                    'current_price': quote['c'],
+                    'change': quote['d'],
+                    'percent_change': quote['dp'],
+                    'high': quote['h'],
+                    'low': quote['l'],
+                    'open': quote['o'],
+                    'previous_close': quote['pc'],
+                    'timestamp': datetime.fromtimestamp(quote['t']).strftime('%Y-%m-%d %H:%M:%S')
+                }
+        except Exception as e:
+            print(f"[!] Error fetching real-time quote: {e}")
+        
+        return None
 
     def calculate_technical_indicators(self):
         """Calculate various technical indicators"""
@@ -469,10 +517,22 @@ class StockAnalyzer:
         print(f"{self.ticker} STOCK ANALYSIS REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*80)
 
+        # Show real-time quote if available
+        realtime = self.fetch_realtime_quote()
+        if realtime:
+            print(f"\n🔴 LIVE QUOTE (Real-Time via Finnhub):")
+            print(f"Current Price: ${realtime['current_price']:.2f}")
+            print(f"Change: ${realtime['change']:.2f} ({realtime['percent_change']:+.2f}%)")
+            print(f"Day High: ${realtime['high']:.2f}")
+            print(f"Day Low: ${realtime['low']:.2f}")
+            print(f"Open: ${realtime['open']:.2f}")
+            print(f"Previous Close: ${realtime['previous_close']:.2f}")
+            print(f"Last Updated: {realtime['timestamp']}")
+
         latest = self.data.iloc[-1]
         prev = self.data.iloc[-2]
 
-        print(f"\nCURRENT PRICE INFORMATION:")
+        print(f"\n📊 HISTORICAL PRICE INFORMATION (End of Day):")
         print(f"Current Price: ${latest['Close']:.2f}")
         print(f"Previous Close: ${prev['Close']:.2f}")
         print(f"Daily Change: ${latest['Price_Change']:.2f} ({latest['Daily_Return']*100:.2f}%)")
