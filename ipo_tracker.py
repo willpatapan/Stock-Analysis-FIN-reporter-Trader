@@ -554,6 +554,90 @@ class IPOTracker:
             import random
             return random.choice(lower_tier)
 
+    def get_company_info(self, company_name, symbol):
+        """
+        Fetch company description and ownership information
+
+        Returns dict with 'description' and 'ownership' keys
+        """
+        info = {
+            'description': 'Information not available',
+            'ownership': 'Information not available'
+        }
+
+        try:
+            # Try to get info from yfinance if symbol exists and is not TBD
+            if symbol and symbol != 'TBD':
+                import time
+                time.sleep(0.3)  # Rate limiting
+
+                ticker = yf.Ticker(symbol)
+                ticker_info = ticker.info
+
+                # Get business description
+                if ticker_info.get('longBusinessSummary'):
+                    info['description'] = ticker_info['longBusinessSummary']
+                elif ticker_info.get('description'):
+                    info['description'] = ticker_info['description']
+
+                # Get ownership information
+                ownership_parts = []
+
+                # Major holders
+                if ticker_info.get('heldPercentInsiders'):
+                    insiders_pct = ticker_info['heldPercentInsiders'] * 100
+                    ownership_parts.append(f"Insiders: {insiders_pct:.1f}%")
+
+                if ticker_info.get('heldPercentInstitutions'):
+                    institutions_pct = ticker_info['heldPercentInstitutions'] * 100
+                    ownership_parts.append(f"Institutions: {institutions_pct:.1f}%")
+
+                # Try to get institutional holders
+                try:
+                    holders = ticker.institutional_holders
+                    if holders is not None and not holders.empty:
+                        top_holders = holders.head(3)['Holder'].tolist()
+                        if top_holders:
+                            ownership_parts.append(f"Top Holders: {', '.join(top_holders)}")
+                except:
+                    pass
+
+                if ownership_parts:
+                    info['ownership'] = ' | '.join(ownership_parts)
+
+        except Exception:
+            # If we can't get info, provide generic description based on company name
+            info['description'] = self._generate_generic_description(company_name)
+            info['ownership'] = 'Ownership details will be available after IPO'
+
+        return info
+
+    def _generate_generic_description(self, company_name):
+        """Generate a generic description based on company name patterns"""
+        name_lower = company_name.lower()
+
+        # SPAC patterns
+        if 'acquisition' in name_lower or 'spac' in name_lower or 'capital' in name_lower:
+            return "Special Purpose Acquisition Company (SPAC) formed to identify and merge with a private company to take it public."
+
+        # Sector-based descriptions
+        if any(word in name_lower for word in ['bio', 'pharma', 'therapeutic', 'medical', 'health']):
+            return "Healthcare/biotechnology company focused on developing medical solutions and treatments."
+
+        if any(word in name_lower for word in ['tech', 'software', 'data', 'cloud', 'cyber', 'ai']):
+            return "Technology company providing innovative software and digital solutions."
+
+        if any(word in name_lower for word in ['finance', 'fintech', 'bank', 'capital']):
+            return "Financial services company providing banking, investment, or fintech solutions."
+
+        if any(word in name_lower for word in ['energy', 'power', 'solar', 'renewable']):
+            return "Energy company focused on power generation and sustainable solutions."
+
+        if any(word in name_lower for word in ['retail', 'consumer', 'commerce']):
+            return "Consumer-focused company providing retail products and services."
+
+        return "Company preparing for initial public offering. Additional details will be available closer to IPO date."
+
     def calculate_ipo_score(self, ipo):
         """
         Calculate ranking score for an IPO
@@ -663,11 +747,16 @@ class IPOTracker:
 
         top_ipos = self.ipo_data[:top_n]
 
+        # Get symbols of top IPOs to avoid duplicates
+        top_symbols = {ipo['symbol'] for ipo in top_ipos}
+
         # Identify risky companies: lower scores or very soon IPO dates
+        # Exclude companies already in top_ipos
         risky_ipos = []
         for ipo in self.ipo_data:
-            if ipo['score'] < 50 or ipo['days_until'] <= 3:
-                risky_ipos.append(ipo)
+            if ipo['symbol'] not in top_symbols:  # Only include if not in top list
+                if ipo['score'] < 50 or ipo['days_until'] <= 3:
+                    risky_ipos.append(ipo)
         risky_ipos = sorted(risky_ipos, key=lambda x: x['days_until'])[:risky_n]
 
         report_date = datetime.now()
@@ -688,6 +777,9 @@ Report Classification: Investment Research & Analysis
 """
 
         for idx, ipo in enumerate(top_ipos, 1):
+            # Fetch company info
+            company_info = self.get_company_info(ipo['company'], ipo['symbol'])
+
             report += f"""
 #{idx}. {ipo['company']} ({ipo['symbol']})
 {'─'*80}
@@ -700,6 +792,12 @@ Valuation:      ${ipo['valuation']/1e9:.2f}B
 Expected Raise: ${ipo['expected_proceeds']/1e6:.1f}M
 Underwriter:    {ipo['underwriter']}
 Score:          {ipo['score']:.1f}/100
+
+Company Overview:
+{company_info['description']}
+
+Ownership:
+{company_info['ownership']}
 
 """
 
@@ -716,6 +814,9 @@ Higher risk may mean higher volatility and potential reward/loss.
 """
             for idx, ipo in enumerate(risky_ipos, 1):
                 risk_reason = "IMMINENT LAUNCH" if ipo['days_until'] <= 3 else "LOW SCORE"
+                # Fetch company info
+                company_info = self.get_company_info(ipo['company'], ipo['symbol'])
+
                 report += f"""
 RISK #{idx} - {risk_reason}: {ipo['company']} ({ipo['symbol']})
 {'─'*80}
@@ -727,6 +828,12 @@ Valuation:      ${ipo['valuation']/1e9:.2f}B
 Expected Raise: ${ipo['expected_proceeds']/1e6:.1f}M
 Underwriter:    {ipo['underwriter']}
 Score:          {ipo['score']:.1f}/100
+
+Company Overview:
+{company_info['description']}
+
+Ownership:
+{company_info['ownership']}
 
 """
 
@@ -765,11 +872,16 @@ Do your own research before investing in any IPO.
 
         top_ipos = self.ipo_data[:top_n]
 
+        # Get symbols of top IPOs to avoid duplicates
+        top_symbols = {ipo['symbol'] for ipo in top_ipos}
+
         # Identify risky companies: lower scores or very soon IPO dates
+        # Exclude companies already in top_ipos
         risky_ipos = []
         for ipo in self.ipo_data:
-            if ipo['score'] < 50 or ipo['days_until'] <= 3:
-                risky_ipos.append(ipo)
+            if ipo['symbol'] not in top_symbols:  # Only include if not in top list
+                if ipo['score'] < 50 or ipo['days_until'] <= 3:
+                    risky_ipos.append(ipo)
         risky_ipos = sorted(risky_ipos, key=lambda x: x['days_until'])[:risky_n]
 
         report_date = datetime.now()
@@ -847,11 +959,24 @@ Do your own research before investing in any IPO.
         """
 
         for idx, ipo in enumerate(top_ipos, 1):
+            # Fetch company info
+            company_info = self.get_company_info(ipo['company'], ipo['symbol'])
+
             html += f"""
                 <div class="company">
                     <span class="rank">#{idx}</span>
                     <span class="score">Score: {ipo['score']:.0f}/100</span>
                     <h2 style="margin: 10px 0;">{ipo['company']} ({ipo['symbol']})</h2>
+
+                    <div style="margin: 15px 0; padding: 12px; background: #f8f9fa; border-left: 3px solid #2a5298;">
+                        <div style="font-weight: 600; color: #1e3c72; margin-bottom: 8px;">Company Overview:</div>
+                        <div style="color: #2c3e50; line-height: 1.6;">{company_info['description']}</div>
+                    </div>
+
+                    <div style="margin: 15px 0; padding: 12px; background: #fff8e1; border-left: 3px solid #c9a961;">
+                        <div style="font-weight: 600; color: #1e3c72; margin-bottom: 8px;">Ownership:</div>
+                        <div style="color: #2c3e50;">{company_info['ownership']}</div>
+                    </div>
 
                     <div>
                         <div class="metric">
@@ -937,12 +1062,25 @@ Do your own research before investing in any IPO.
             for idx, ipo in enumerate(risky_ipos, 1):
                 risk_reason = "IMMINENT LAUNCH" if ipo['days_until'] <= 3 else "LOW SCORE"
                 risk_class = "urgent" if ipo['days_until'] <= 3 else ""
+                # Fetch company info
+                company_info = self.get_company_info(ipo['company'], ipo['symbol'])
+
                 html += f"""
                 <div class="company {risk_class}" style="border-left-color: #e74c3c;">
                     <span class="rank" style="background: #e74c3c;">RISK #{idx}</span>
                     <span class="score" style="background: #e67e22;">Score: {ipo['score']:.0f}/100</span>
                     <h2 style="margin: 10px 0; color: #c0392b;">{ipo['company']} ({ipo['symbol']})</h2>
                     <p style="color: #e74c3c; font-weight: 600; margin: 5px 0;">{risk_reason}</p>
+
+                    <div style="margin: 15px 0; padding: 12px; background: #f8f9fa; border-left: 3px solid #e74c3c;">
+                        <div style="font-weight: 600; color: #c0392b; margin-bottom: 8px;">Company Overview:</div>
+                        <div style="color: #2c3e50; line-height: 1.6;">{company_info['description']}</div>
+                    </div>
+
+                    <div style="margin: 15px 0; padding: 12px; background: #fff8e1; border-left: 3px solid #e67e22;">
+                        <div style="font-weight: 600; color: #c0392b; margin-bottom: 8px;">Ownership:</div>
+                        <div style="color: #2c3e50;">{company_info['ownership']}</div>
+                    </div>
 
                     <div>
                         <div class="metric">
