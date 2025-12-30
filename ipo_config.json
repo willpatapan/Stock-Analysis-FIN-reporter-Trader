@@ -1,4 +1,8 @@
 {
+    "api": {
+        "finnhub_api_key": "d59laa1r01qgqlm0vr80d59laa1r01qgqlm0vr8g",
+        "use_finnhub": true
+    },
     "email": {
         "smtp_server": "smtp.gmail.com",
         "smtp_port": 587,

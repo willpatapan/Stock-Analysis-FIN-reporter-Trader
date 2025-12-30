@@ -35,10 +35,11 @@ try:
     import logging
     import time
     from typing import Dict, List, Optional, Tuple
+    import finnhub
 except ImportError as e:
     print(f"Missing required package: {e}")
     print("\nPlease install required packages:")
-    print("pip install requests beautifulsoup4 yfinance pandas")
+    print("pip install requests beautifulsoup4 yfinance pandas finnhub-python")
     exit(1)
 
 
@@ -84,6 +85,10 @@ class IPOTracker:
         else:
             # Create default config
             default_config = {
+                'api': {
+                    'finnhub_api_key': 'd59laa1r01qgqlm0vr80d59laa1r01qgqlm0vr8g',
+                    'use_finnhub': True  # Set to False to use NASDAQ scraping instead
+                },
                 'email': {
                     'smtp_server': 'smtp.gmail.com',
                     'smtp_port': 587,
@@ -572,6 +577,150 @@ class IPOTracker:
             import random
             return random.choice(lower_tier)
 
+    def fetch_ipo_data_finnhub(self):
+        """
+        Fetch IPO calendar data from Finnhub API
+
+        Returns real-time IPO data from Finnhub's official API endpoint
+        More reliable than web scraping with structured data
+        """
+        ipos = []
+
+        try:
+            # Get API key from config
+            api_key = self.config.get('api', {}).get('finnhub_api_key', '')
+
+            if not api_key or api_key == '':
+                print("  ✗ Finnhub API key not configured")
+                return ipos
+
+            # Initialize Finnhub client
+            finnhub_client = finnhub.Client(api_key=api_key)
+
+            # Calculate date range
+            # Finnhub API provides historical and recent IPOs, not future predictions
+            # Fetch from 30 days ago to 30 days ahead to capture recent and filed IPOs
+            current_date = datetime.now()
+            start_date = current_date - timedelta(days=30)
+            end_date = current_date + timedelta(days=60)
+
+            from_date = start_date.strftime('%Y-%m-%d')
+            to_date = end_date.strftime('%Y-%m-%d')
+
+            print(f"  Fetching Finnhub IPO data from {from_date} to {to_date}...")
+
+            # Fetch IPO calendar
+            ipo_calendar = finnhub_client.ipo_calendar(
+                _from=from_date,
+                to=to_date
+            )
+
+            if not ipo_calendar or 'ipoCalendar' not in ipo_calendar:
+                print("  ✗ No IPO data returned from Finnhub")
+                return ipos
+
+            ipo_events = ipo_calendar.get('ipoCalendar', [])
+
+            for event in ipo_events:
+                try:
+                    # Parse IPO date
+                    date_str = event.get('date', '')
+                    if not date_str:
+                        continue
+
+                    ipo_date = datetime.strptime(date_str, '%Y-%m-%d')
+
+                    # Get company info
+                    company_name = event.get('name', '').strip()
+                    symbol = event.get('symbol', '').strip()
+
+                    if not company_name:
+                        continue
+
+                    # Get shares and pricing info
+                    num_shares = event.get('numberOfShares', 0)
+                    total_value = event.get('totalSharesValue', 0)
+                    price_str = event.get('price', '')
+                    status = event.get('status', 'expected')
+                    exchange = event.get('exchange', 'Unknown')
+
+                    # Parse price range from string like "$15-$18" or "$20"
+                    price_low, price_high = self._parse_price_range(price_str)
+
+                    # Calculate shares if not provided
+                    if num_shares == 0 and total_value > 0:
+                        mid_price = (price_low + price_high) / 2
+                        num_shares = int(total_value / mid_price) if mid_price > 0 else 1_000_000
+
+                    # Calculate valuation (estimate total company value as 2.5x offering)
+                    if total_value > 0:
+                        valuation = total_value * 2.5
+                    else:
+                        mid_price = (price_low + price_high) / 2
+                        valuation = mid_price * num_shares * 10
+
+                    # Determine sector
+                    sector = self._guess_sector(company_name)
+
+                    # Estimate underwriter
+                    underwriter = self._guess_underwriter(exchange, valuation)
+
+                    ipo = {
+                        'company': company_name,
+                        'symbol': symbol if symbol else 'TBD',
+                        'ipo_date': ipo_date,
+                        'price_range_low': price_low,
+                        'price_range_high': price_high,
+                        'shares': int(num_shares) if num_shares > 0 else 1_000_000,
+                        'valuation': valuation,
+                        'sector': sector,
+                        'underwriter': underwriter,
+                        'exchange': exchange,
+                        'status': status,
+                        'source': 'FINNHUB'
+                    }
+
+                    ipos.append(ipo)
+
+                except Exception as e:
+                    self.logger.debug(f"    Warning: Error parsing Finnhub IPO: {e}")
+                    continue
+
+            print(f"  ✓ Fetched {len(ipos)} IPOs from Finnhub")
+
+        except Exception as e:
+            print(f"  ✗ Error fetching Finnhub data: {e}")
+            self.logger.error(f"Finnhub API error: {e}")
+
+        return ipos
+
+    def _parse_price_range(self, price_str):
+        """
+        Parse price range string from Finnhub
+
+        Examples: "$15-$18", "$20", "15-18", "TBD"
+        Returns: (low, high) tuple
+        """
+        if not price_str or price_str.upper() == 'TBD':
+            return (15.0, 20.0)  # Default range
+
+        try:
+            # Remove $ signs and spaces
+            cleaned = price_str.replace('$', '').replace(' ', '')
+
+            # Check for range (contains dash)
+            if '-' in cleaned:
+                parts = cleaned.split('-')
+                low = float(parts[0])
+                high = float(parts[1])
+                return (low, high)
+            else:
+                # Single price - create small range around it
+                price = float(cleaned)
+                return (price * 0.95, price * 1.05)
+        except:
+            return (15.0, 20.0)  # Default fallback
+
     def get_company_info(self, company_name, symbol):
         """
         Fetch company description and ownership information
@@ -928,8 +1077,24 @@ class IPOTracker:
         print("Fetching upcoming IPO data...")
 
         # Fetch from multiple sources
-        nasdaq_ipos = self.fetch_ipo_data_nasdaq()
-        all_ipos = nasdaq_ipos  # Add more sources here
+        all_ipos = []
+
+        # Try Finnhub first if enabled
+        use_finnhub = self.config.get('api', {}).get('use_finnhub', True)
+
+        if use_finnhub:
+            finnhub_ipos = self.fetch_ipo_data_finnhub()
+            all_ipos.extend(finnhub_ipos)
+
+            # If Finnhub returns no data, fall back to NASDAQ
+            if len(finnhub_ipos) == 0:
+                print("  ⚠ Finnhub returned no data, falling back to NASDAQ...")
+                nasdaq_ipos = self.fetch_ipo_data_nasdaq()
+                all_ipos.extend(nasdaq_ipos)
+        else:
+            # Use NASDAQ scraping
+            nasdaq_ipos = self.fetch_ipo_data_nasdaq()
+            all_ipos.extend(nasdaq_ipos)
 
         # Apply filters
         days_ahead = self.config['filters']['days_ahead']
