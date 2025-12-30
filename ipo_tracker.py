@@ -25,10 +25,16 @@ import json
 import os
 warnings.filterwarnings('ignore')
 
+# Suppress yfinance warnings and errors
+import logging as std_logging
+std_logging.getLogger('yfinance').setLevel(std_logging.CRITICAL)
+
 try:
     import requests
-    from bs4 import BeautifulSoup
     import yfinance as yf
+    import logging
+    import time
+    from typing import Dict, List, Optional, Tuple
 except ImportError as e:
     print(f"Missing required package: {e}")
     print("\nPlease install required packages:")
@@ -56,6 +62,18 @@ class IPOTracker:
         self.config_file = config_file
         self.config = self.load_config()
         self.ipo_data = []
+        self.cache = {}  # Simple cache for API responses
+
+        # Setup logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('ipo_tracker.log'),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
 
     def load_config(self):
         """Load configuration from file or create default"""
@@ -565,15 +583,28 @@ class IPOTracker:
             'ownership': 'Information not available'
         }
 
+        # Skip API call for pre-IPO symbols
+        if self._is_pre_ipo_symbol(symbol):
+            self.logger.debug(f"Skipping company info for pre-IPO symbol: {symbol}")
+            info['description'] = self._generate_generic_description(company_name)
+            info['ownership'] = 'Ownership details will be available after IPO'
+            return info
+
         try:
-            # Try to get info from yfinance if symbol exists and is not TBD
-            if symbol and symbol != 'TBD':
-                import time
-                time.sleep(0.3)  # Rate limiting
+            # Use cache to avoid repeated API calls
+            cache_key = f"info_{symbol}"
+            if cache_key in self.cache:
+                cache_time, cached_data = self.cache[cache_key]
+                if (time.time() - cache_time) < 3600:
+                    return cached_data
 
-                ticker = yf.Ticker(symbol)
-                ticker_info = ticker.info
+            time.sleep(0.15)  # Rate limiting
 
+            ticker = yf.Ticker(symbol)
+            ticker_info = ticker.info
+
+            # Check if we got valid data (not a 404)
+            if ticker_info and 'symbol' in ticker_info:
                 # Get business description
                 if ticker_info.get('longBusinessSummary'):
                     info['description'] = ticker_info['longBusinessSummary']
@@ -604,9 +635,16 @@ class IPOTracker:
 
                 if ownership_parts:
                     info['ownership'] = ' | '.join(ownership_parts)
+            else:
+                # Symbol not found, use generic description
+                raise ValueError(f"Symbol {symbol} not found")
 
-        except Exception:
+            # Cache the results
+            self.cache[cache_key] = (time.time(), info)
+
+        except Exception as e:
             # If we can't get info, provide generic description based on company name
+            self.logger.debug(f"Could not fetch info for {symbol}: {e}")
             info['description'] = self._generate_generic_description(company_name)
             info['ownership'] = 'Ownership details will be available after IPO'
 
@@ -637,6 +675,188 @@ class IPOTracker:
             return "Consumer-focused company providing retail products and services."
 
         return "Company preparing for initial public offering. Additional details will be available closer to IPO date."
+
+    def _is_pre_ipo_symbol(self, symbol: str) -> bool:
+        """Check if symbol is likely a pre-IPO company (not yet trading)"""
+        if not symbol or symbol == 'TBD':
+            return True
+        # Unit symbols (end with U) are often pre-IPO SPACs
+        if symbol.endswith('U'):
+            return True
+        return False
+
+    def get_company_news(self, company_name: str, symbol: str, max_articles: int = 5) -> List[Dict]:
+        """
+        Fetch recent news articles about the company
+
+        Returns list of news articles with title, date, source, and summary
+        """
+        news_articles = []
+
+        # Skip if pre-IPO (no data available)
+        if self._is_pre_ipo_symbol(symbol):
+            self.logger.debug(f"Skipping news for pre-IPO symbol: {symbol}")
+            return news_articles
+
+        try:
+            # Use cache to avoid repeated API calls
+            cache_key = f"news_{symbol}_{company_name}"
+            if cache_key in self.cache:
+                cache_time, cached_data = self.cache[cache_key]
+                # Use cache if less than 1 hour old
+                if (time.time() - cache_time) < 3600:
+                    return cached_data
+
+            # Try yfinance news first
+            try:
+                ticker = yf.Ticker(symbol)
+                news = ticker.news
+
+                if news:
+                    for article in news[:max_articles]:
+                        news_articles.append({
+                            'title': article.get('title', 'No title'),
+                            'publisher': article.get('publisher', 'Unknown'),
+                            'link': article.get('link', ''),
+                            'published': datetime.fromtimestamp(article.get('providerPublishTime', 0)).strftime('%Y-%m-%d') if article.get('providerPublishTime') else 'Recent',
+                            'summary': article.get('summary', '')[:200] + '...' if article.get('summary') else ''
+                        })
+
+                time.sleep(0.15)  # Rate limiting
+            except Exception as e:
+                self.logger.debug(f"Could not fetch yfinance news for {symbol}: {e}")
+
+            # Cache the results (even if empty to avoid repeated lookups)
+            self.cache[cache_key] = (time.time(), news_articles)
+
+        except Exception as e:
+            self.logger.debug(f"Error fetching news for {company_name}: {e}")
+
+        return news_articles
+
+    def get_financial_metrics(self, symbol: str) -> Dict[str, Optional[float]]:
+        """
+        Fetch key financial metrics for a company
+
+        Returns dict with revenue, profit margin, growth rates, etc.
+        """
+        metrics = {
+            'revenue': None,
+            'revenue_growth': None,
+            'profit_margin': None,
+            'market_cap': None,
+            'employees': None,
+            'founded_year': None,
+            'pe_ratio': None,
+            'book_value': None
+        }
+
+        # Skip if pre-IPO (no data available)
+        if self._is_pre_ipo_symbol(symbol):
+            self.logger.debug(f"Skipping financial metrics for pre-IPO symbol: {symbol}")
+            return metrics
+
+        try:
+            # Use cache
+            cache_key = f"metrics_{symbol}"
+            if cache_key in self.cache:
+                cache_time, cached_data = self.cache[cache_key]
+                if (time.time() - cache_time) < 3600:
+                    return cached_data
+
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+
+            # Check if we got valid data
+            if info and 'symbol' in info:
+                # Extract available metrics
+                metrics['revenue'] = info.get('totalRevenue')
+                metrics['revenue_growth'] = info.get('revenueGrowth')
+                metrics['profit_margin'] = info.get('profitMargins')
+                metrics['market_cap'] = info.get('marketCap')
+                metrics['employees'] = info.get('fullTimeEmployees')
+                metrics['pe_ratio'] = info.get('trailingPE')
+                metrics['book_value'] = info.get('bookValue')
+
+            # Cache the results (even if empty)
+            self.cache[cache_key] = (time.time(), metrics)
+
+            time.sleep(0.15)  # Rate limiting
+
+        except Exception as e:
+            self.logger.debug(f"Could not fetch financial metrics for {symbol}: {e}")
+
+        return metrics
+
+    def get_sec_filings(self, company_name: str, symbol: str) -> Dict[str, any]:
+        """
+        Fetch recent SEC filings for the company (S-1, prospectus, etc.)
+
+        Returns dict with filing information
+        """
+        filings = {
+            'has_s1': False,
+            's1_date': None,
+            's1_link': None,
+            'risk_factors': [],
+            'use_of_proceeds': ''
+        }
+
+        try:
+            # SEC EDGAR search (simplified - full implementation would use SEC API)
+            # For now, we'll construct likely URLs based on company info
+            if symbol and symbol != 'TBD':
+                # This is a placeholder - in production, you'd use the SEC EDGAR API
+                # to search for actual filings
+                filings['has_s1'] = False  # Would be determined by actual API call
+                self.logger.debug(f"SEC filing lookup not fully implemented for {symbol}")
+
+        except Exception as e:
+            self.logger.debug(f"Error fetching SEC filings for {company_name}: {e}")
+
+        return filings
+
+    def analyze_sentiment(self, news_articles: List[Dict]) -> Tuple[str, float]:
+        """
+        Perform basic sentiment analysis on news articles
+
+        Returns tuple of (sentiment_label, confidence_score)
+        """
+        if not news_articles:
+            return ("Neutral", 0.5)
+
+        # Simple keyword-based sentiment analysis
+        positive_words = ['growth', 'profit', 'success', 'innovative', 'leading', 'surge',
+                         'gain', 'strong', 'beat', 'exceed', 'bullish', 'opportunity']
+        negative_words = ['loss', 'decline', 'weak', 'concern', 'risk', 'fall', 'drop',
+                         'bearish', 'warning', 'lawsuit', 'investigation', 'fraud']
+
+        positive_count = 0
+        negative_count = 0
+        total_words = 0
+
+        for article in news_articles:
+            text = (article.get('title', '') + ' ' + article.get('summary', '')).lower()
+
+            for word in positive_words:
+                positive_count += text.count(word)
+            for word in negative_words:
+                negative_count += text.count(word)
+
+            total_words += len(text.split())
+
+        # Calculate sentiment
+        if total_words == 0:
+            return ("Neutral", 0.5)
+
+        sentiment_score = (positive_count - negative_count) / max(total_words / 10, 1)
+
+        if sentiment_score > 0.3:
+            return ("Positive", min(0.5 + sentiment_score / 2, 0.95))
+        elif sentiment_score < -0.3:
+            return ("Negative", max(0.5 + sentiment_score / 2, 0.05))
+        else:
+            return ("Neutral", 0.5)
 
     def calculate_ipo_score(self, ipo):
         """
@@ -776,9 +996,24 @@ Report Classification: Investment Research & Analysis
 
 """
 
+        print(f"\nGenerating detailed reports for {len(top_ipos)} companies...")
         for idx, ipo in enumerate(top_ipos, 1):
+            # Progress indicator
+            print(f"  [{idx}/{len(top_ipos)}] {ipo['company']} ({ipo['symbol']})...", end=' ', flush=True)
+
             # Fetch company info
             company_info = self.get_company_info(ipo['company'], ipo['symbol'])
+
+            # Fetch financial metrics
+            financial_metrics = self.get_financial_metrics(ipo['symbol'])
+
+            # Fetch recent news
+            news_articles = self.get_company_news(ipo['company'], ipo['symbol'], max_articles=3)
+
+            # Analyze sentiment
+            sentiment, sentiment_score = self.analyze_sentiment(news_articles)
+
+            print("✓")
 
             report += f"""
 #{idx}. {ipo['company']} ({ipo['symbol']})
@@ -786,7 +1021,7 @@ Report Classification: Investment Research & Analysis
 IPO Date:       {ipo['ipo_date'].strftime('%Y-%m-%d')} ({ipo['days_until']} days away)
 Exchange:       {ipo['exchange']}
 Sector:         {ipo['sector']}
-Price Range:    ${ipo['price_range_low']} - ${ipo['price_range_high']}
+Price Range:    ${ipo['price_range_low']:.2f} - ${ipo['price_range_high']:.2f}
 Shares Offered: {ipo['shares']:,}
 Valuation:      ${ipo['valuation']/1e9:.2f}B
 Expected Raise: ${ipo['expected_proceeds']/1e6:.1f}M
@@ -799,7 +1034,33 @@ Company Overview:
 Ownership:
 {company_info['ownership']}
 
+Financial Metrics:
 """
+
+            if financial_metrics['revenue']:
+                report += f"  Revenue: ${financial_metrics['revenue']/1e9:.2f}B\n"
+            if financial_metrics['revenue_growth']:
+                report += f"  Revenue Growth: {financial_metrics['revenue_growth']*100:.1f}%\n"
+            if financial_metrics['profit_margin']:
+                report += f"  Profit Margin: {financial_metrics['profit_margin']*100:.1f}%\n"
+            if financial_metrics['employees']:
+                report += f"  Employees: {financial_metrics['employees']:,}\n"
+            if not any(financial_metrics.values()):
+                report += "  Financial data will be available after IPO\n"
+
+            report += f"\nMarket Sentiment: {sentiment} ({sentiment_score*100:.0f}% confidence)\n"
+
+            if news_articles:
+                report += "\nRecent News & Events:\n"
+                for article in news_articles[:3]:
+                    report += f"  • [{article['published']}] {article['title']}\n"
+                    report += f"    Source: {article['publisher']}\n"
+                    if article.get('summary'):
+                        report += f"    {article['summary']}\n"
+            else:
+                report += "\nRecent News & Events:\n  No recent news available\n"
+
+            report += "\n"
 
         # Add risky companies section
         if risky_ipos:
@@ -812,10 +1073,23 @@ These companies have lower investment scores or are launching within 3 days.
 Higher risk may mean higher volatility and potential reward/loss.
 
 """
+            print(f"\nProcessing {len(risky_ipos)} high-risk opportunities...")
             for idx, ipo in enumerate(risky_ipos, 1):
+                print(f"  [Risk {idx}/{len(risky_ipos)}] {ipo['company']} ({ipo['symbol']})...", end=' ', flush=True)
                 risk_reason = "IMMINENT LAUNCH" if ipo['days_until'] <= 3 else "LOW SCORE"
                 # Fetch company info
                 company_info = self.get_company_info(ipo['company'], ipo['symbol'])
+
+                # Fetch financial metrics
+                financial_metrics = self.get_financial_metrics(ipo['symbol'])
+
+                # Fetch recent news
+                news_articles = self.get_company_news(ipo['company'], ipo['symbol'], max_articles=3)
+
+                # Analyze sentiment
+                sentiment, sentiment_score = self.analyze_sentiment(news_articles)
+
+                print("✓")
 
                 report += f"""
 RISK #{idx} - {risk_reason}: {ipo['company']} ({ipo['symbol']})
@@ -823,7 +1097,7 @@ RISK #{idx} - {risk_reason}: {ipo['company']} ({ipo['symbol']})
 IPO Date:       {ipo['ipo_date'].strftime('%Y-%m-%d')} ({ipo['days_until']} days away)
 Exchange:       {ipo['exchange']}
 Sector:         {ipo['sector']}
-Price Range:    ${ipo['price_range_low']} - ${ipo['price_range_high']}
+Price Range:    ${ipo['price_range_low']:.2f} - ${ipo['price_range_high']:.2f}
 Valuation:      ${ipo['valuation']/1e9:.2f}B
 Expected Raise: ${ipo['expected_proceeds']/1e6:.1f}M
 Underwriter:    {ipo['underwriter']}
@@ -835,7 +1109,33 @@ Company Overview:
 Ownership:
 {company_info['ownership']}
 
+Financial Metrics:
 """
+
+                if financial_metrics['revenue']:
+                    report += f"  Revenue: ${financial_metrics['revenue']/1e9:.2f}B\n"
+                if financial_metrics['revenue_growth']:
+                    report += f"  Revenue Growth: {financial_metrics['revenue_growth']*100:.1f}%\n"
+                if financial_metrics['profit_margin']:
+                    report += f"  Profit Margin: {financial_metrics['profit_margin']*100:.1f}%\n"
+                if financial_metrics['employees']:
+                    report += f"  Employees: {financial_metrics['employees']:,}\n"
+                if not any(financial_metrics.values()):
+                    report += "  Financial data will be available after IPO\n"
+
+                report += f"\nMarket Sentiment: {sentiment} ({sentiment_score*100:.0f}% confidence)\n"
+
+                if news_articles:
+                    report += "\nRecent News & Events:\n"
+                    for article in news_articles[:3]:
+                        report += f"  • [{article['published']}] {article['title']}\n"
+                        report += f"    Source: {article['publisher']}\n"
+                        if article.get('summary'):
+                            report += f"    {article['summary']}\n"
+                else:
+                    report += "\nRecent News & Events:\n  No recent news available\n"
+
+                report += "\n"
 
         report += f"""
 {'='*80}
@@ -962,6 +1262,18 @@ Do your own research before investing in any IPO.
             # Fetch company info
             company_info = self.get_company_info(ipo['company'], ipo['symbol'])
 
+            # Fetch financial metrics
+            financial_metrics = self.get_financial_metrics(ipo['symbol'])
+
+            # Fetch recent news
+            news_articles = self.get_company_news(ipo['company'], ipo['symbol'], max_articles=3)
+
+            # Analyze sentiment
+            sentiment, sentiment_score = self.analyze_sentiment(news_articles)
+
+            # Sentiment color
+            sentiment_color = "#27ae60" if sentiment == "Positive" else "#e74c3c" if sentiment == "Negative" else "#95a5a6"
+
             html += f"""
                 <div class="company">
                     <span class="rank">#{idx}</span>
@@ -978,6 +1290,62 @@ Do your own research before investing in any IPO.
                         <div style="color: #2c3e50;">{company_info['ownership']}</div>
                     </div>
 
+                    <div style="margin: 15px 0; padding: 12px; background: #e8f5e9; border-left: 3px solid {sentiment_color};">
+                        <div style="font-weight: 600; color: #1e3c72; margin-bottom: 8px;">Market Sentiment:</div>
+                        <div style="color: #2c3e50;">
+                            <strong style="color: {sentiment_color};">{sentiment}</strong>
+                            ({sentiment_score*100:.0f}% confidence)
+                        </div>
+                    </div>
+"""
+
+            # Add financial metrics if available
+            if any(financial_metrics.values()):
+                html += """
+                    <div style="margin: 15px 0; padding: 12px; background: #f3e5f5; border-left: 3px solid #9c27b0;">
+                        <div style="font-weight: 600; color: #1e3c72; margin-bottom: 8px;">Financial Metrics:</div>
+                        <div style="color: #2c3e50;">
+"""
+                if financial_metrics['revenue']:
+                    html += f"                            <div>Revenue: <strong>${financial_metrics['revenue']/1e9:.2f}B</strong></div>\n"
+                if financial_metrics['revenue_growth']:
+                    html += f"                            <div>Revenue Growth: <strong>{financial_metrics['revenue_growth']*100:.1f}%</strong></div>\n"
+                if financial_metrics['profit_margin']:
+                    html += f"                            <div>Profit Margin: <strong>{financial_metrics['profit_margin']*100:.1f}%</strong></div>\n"
+                if financial_metrics['employees']:
+                    html += f"                            <div>Employees: <strong>{financial_metrics['employees']:,}</strong></div>\n"
+
+                html += """
+                        </div>
+                    </div>
+"""
+
+            # Add recent news
+            if news_articles:
+                html += """
+                    <div style="margin: 15px 0; padding: 12px; background: #fff3e0; border-left: 3px solid #ff9800;">
+                        <div style="font-weight: 600; color: #1e3c72; margin-bottom: 8px;">Recent News & Events:</div>
+                        <div style="color: #2c3e50;">
+"""
+                for article in news_articles[:3]:
+                    html += f"""
+                            <div style="margin: 10px 0; padding: 8px; background: white; border-radius: 4px;">
+                                <div style="font-weight: 500; color: #1e3c72;">{article['title']}</div>
+                                <div style="font-size: 12px; color: #7f8c8d; margin-top: 4px;">
+                                    {article['publisher']} • {article['published']}
+                                </div>
+"""
+                    if article.get('summary'):
+                        html += f"                                <div style='font-size: 13px; margin-top: 6px;'>{article['summary']}</div>\n"
+
+                    html += "                            </div>\n"
+
+                html += """
+                        </div>
+                    </div>
+"""
+
+            html += f"""
                     <div>
                         <div class="metric">
                             <span class="label">IPO Date:</span>
@@ -997,7 +1365,7 @@ Do your own research before investing in any IPO.
                     <div>
                         <div class="metric">
                             <span class="label">Price Range:</span>
-                            <span class="value">${ipo['price_range_low']} - ${ipo['price_range_high']}</span>
+                            <span class="value">${ipo['price_range_low']:.2f} - ${ipo['price_range_high']:.2f}</span>
                         </div>
                         <div class="metric">
                             <span class="label">Valuation:</span>
@@ -1065,6 +1433,18 @@ Do your own research before investing in any IPO.
                 # Fetch company info
                 company_info = self.get_company_info(ipo['company'], ipo['symbol'])
 
+                # Fetch financial metrics
+                financial_metrics = self.get_financial_metrics(ipo['symbol'])
+
+                # Fetch recent news
+                news_articles = self.get_company_news(ipo['company'], ipo['symbol'], max_articles=3)
+
+                # Analyze sentiment
+                sentiment, sentiment_score = self.analyze_sentiment(news_articles)
+
+                # Sentiment color
+                sentiment_color = "#27ae60" if sentiment == "Positive" else "#e74c3c" if sentiment == "Negative" else "#95a5a6"
+
                 html += f"""
                 <div class="company {risk_class}" style="border-left-color: #e74c3c;">
                     <span class="rank" style="background: #e74c3c;">RISK #{idx}</span>
@@ -1082,6 +1462,62 @@ Do your own research before investing in any IPO.
                         <div style="color: #2c3e50;">{company_info['ownership']}</div>
                     </div>
 
+                    <div style="margin: 15px 0; padding: 12px; background: #e8f5e9; border-left: 3px solid {sentiment_color};">
+                        <div style="font-weight: 600; color: #c0392b; margin-bottom: 8px;">Market Sentiment:</div>
+                        <div style="color: #2c3e50;">
+                            <strong style="color: {sentiment_color};">{sentiment}</strong>
+                            ({sentiment_score*100:.0f}% confidence)
+                        </div>
+                    </div>
+"""
+
+                # Add financial metrics if available
+                if any(financial_metrics.values()):
+                    html += """
+                    <div style="margin: 15px 0; padding: 12px; background: #f3e5f5; border-left: 3px solid #9c27b0;">
+                        <div style="font-weight: 600; color: #c0392b; margin-bottom: 8px;">Financial Metrics:</div>
+                        <div style="color: #2c3e50;">
+"""
+                    if financial_metrics['revenue']:
+                        html += f"                            <div>Revenue: <strong>${financial_metrics['revenue']/1e9:.2f}B</strong></div>\n"
+                    if financial_metrics['revenue_growth']:
+                        html += f"                            <div>Revenue Growth: <strong>{financial_metrics['revenue_growth']*100:.1f}%</strong></div>\n"
+                    if financial_metrics['profit_margin']:
+                        html += f"                            <div>Profit Margin: <strong>{financial_metrics['profit_margin']*100:.1f}%</strong></div>\n"
+                    if financial_metrics['employees']:
+                        html += f"                            <div>Employees: <strong>{financial_metrics['employees']:,}</strong></div>\n"
+
+                    html += """
+                        </div>
+                    </div>
+"""
+
+                # Add recent news
+                if news_articles:
+                    html += """
+                    <div style="margin: 15px 0; padding: 12px; background: #fff3e0; border-left: 3px solid #ff9800;">
+                        <div style="font-weight: 600; color: #c0392b; margin-bottom: 8px;">Recent News & Events:</div>
+                        <div style="color: #2c3e50;">
+"""
+                    for article in news_articles[:3]:
+                        html += f"""
+                            <div style="margin: 10px 0; padding: 8px; background: white; border-radius: 4px;">
+                                <div style="font-weight: 500; color: #c0392b;">{article['title']}</div>
+                                <div style="font-size: 12px; color: #7f8c8d; margin-top: 4px;">
+                                    {article['publisher']} • {article['published']}
+                                </div>
+"""
+                        if article.get('summary'):
+                            html += f"                                <div style='font-size: 13px; margin-top: 6px;'>{article['summary']}</div>\n"
+
+                        html += "                            </div>\n"
+
+                    html += """
+                        </div>
+                    </div>
+"""
+
+                html += f"""
                     <div>
                         <div class="metric">
                             <span class="label">IPO Date:</span>
@@ -1101,7 +1537,7 @@ Do your own research before investing in any IPO.
                     <div>
                         <div class="metric">
                             <span class="label">Price Range:</span>
-                            <span class="value">${ipo['price_range_low']} - ${ipo['price_range_high']}</span>
+                            <span class="value">${ipo['price_range_low']:.2f} - ${ipo['price_range_high']:.2f}</span>
                         </div>
                         <div class="metric">
                             <span class="label">Valuation:</span>
