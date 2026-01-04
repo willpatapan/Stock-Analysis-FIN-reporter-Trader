@@ -1,0 +1,41 @@
+# Streamlit and Web Framework
+streamlit>=1.30.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.18.0
+
+# Financial Data APIs
+yfinance>=0.2.36
+finnhub-python>=2.4.18
+
+# Machine Learning
+scikit-learn>=1.3.0
+
+# Scientific Computing
+scipy>=1.11.0
+
+# Technical Analysis
+ta>=0.11.0
+
+# Document Generation
+python-pptx>=0.6.23
+reportlab>=4.0.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Web Utilities
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Additional Utilities
+pytz>=2023.3
