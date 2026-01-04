@@ -342,7 +342,12 @@ class RiskMetricsOptimized:
         for i in range(len(returns)):
             cumulative[i + 1] = cumulative[i] * (1 + returns[i])
 
-        running_max = np.maximum.accumulate(cumulative)
+        # Manual implementation of running maximum for numba compatibility
+        running_max = np.zeros(len(cumulative))
+        running_max[0] = cumulative[0]
+        for i in range(1, len(cumulative)):
+            running_max[i] = max(running_max[i-1], cumulative[i])
+
         drawdown = (cumulative - running_max) / running_max
         return np.min(drawdown)
 

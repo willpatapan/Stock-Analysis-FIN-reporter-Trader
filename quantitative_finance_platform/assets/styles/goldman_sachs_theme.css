@@ -1,0 +1,198 @@
+/* Goldman Sachs Professional Theme for Streamlit */
+
+:root {
+    --gs-blue: #0033A0;
+    --gs-dark-blue: #002670;
+    --gs-gold: #C9A961;
+    --gs-light-gray: #F5F7FA;
+    --gs-dark-gray: #2C3E50;
+    --gs-success: #2ECC71;
+    --gs-danger: #E74C3C;
+}
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, var(--gs-blue) 0%, var(--gs-dark-blue) 100%);
+}
+
+[data-testid="stSidebar"] * {
+    color: white !important;
+}
+
+[data-testid="stSidebar"] .css-1d391kg {
+    color: white;
+}
+
+/* Sidebar Navigation Links */
+[data-testid="stSidebar"] a {
+    color: var(--gs-gold) !important;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+[data-testid="stSidebar"] a:hover {
+    color: white !important;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Main Content Area */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    max-width: 1400px;
+}
+
+/* Headers */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--gs-blue);
+    font-weight: 600;
+}
+
+h1 {
+    border-bottom: 3px solid var(--gs-gold);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Metric Cards */
+.metric-card {
+    background: white;
+    border-left: 4px solid var(--gs-blue);
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    margin-bottom: 1rem;
+    transition: box-shadow 0.3s ease;
+}
+
+.metric-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+/* Buttons */
+.stButton > button {
+    background: var(--gs-blue);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    transition: background 0.3s;
+}
+
+.stButton > button:hover {
+    background: var(--gs-dark-blue);
+    box-shadow: 0 4px 8px rgba(0,51,160,0.3);
+}
+
+/* Dataframes / Tables */
+.dataframe {
+    border: 1px solid var(--gs-light-gray);
+    border-radius: 4px;
+}
+
+.dataframe thead th {
+    background: var(--gs-blue) !important;
+    color: white !important;
+    font-weight: 600;
+    border-color: var(--gs-dark-blue) !important;
+}
+
+.dataframe tbody tr:nth-child(even) {
+    background-color: var(--gs-light-gray);
+}
+
+.dataframe tbody tr:hover {
+    background-color: rgba(0, 51, 160, 0.05);
+}
+
+/* Input Fields */
+.stTextInput input, .stNumberInput input, .stSelectbox select {
+    border: 2px solid var(--gs-light-gray);
+    border-radius: 4px;
+    transition: border-color 0.3s;
+}
+
+.stTextInput input:focus, .stNumberInput input:focus, .stSelectbox select:focus {
+    border-color: var(--gs-blue);
+    box-shadow: 0 0 0 2px rgba(0, 51, 160, 0.1);
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 1rem;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background-color: transparent;
+    border-bottom: 2px solid transparent;
+    color: var(--gs-dark-gray);
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+}
+
+.stTabs [aria-selected="true"] {
+    background-color: transparent;
+    border-bottom: 2px solid var(--gs-blue);
+    color: var(--gs-blue);
+}
+
+/* Expanders */
+.streamlit-expanderHeader {
+    background-color: var(--gs-light-gray);
+    border-left: 4px solid var(--gs-blue);
+    font-weight: 600;
+    color: var(--gs-dark-gray);
+}
+
+/* Success/Error Messages */
+.stSuccess {
+    background-color: rgba(46, 204, 113, 0.1);
+    border-left: 4px solid var(--gs-success);
+}
+
+.stError {
+    background-color: rgba(231, 76, 60, 0.1);
+    border-left: 4px solid var(--gs-danger);
+}
+
+.stWarning {
+    background-color: rgba(201, 169, 97, 0.1);
+    border-left: 4px solid var(--gs-gold);
+}
+
+/* Progress Bars */
+.stProgress > div > div > div {
+    background-color: var(--gs-blue);
+}
+
+/* File Uploader */
+.uploadedFile {
+    border: 2px dashed var(--gs-blue);
+    border-radius: 4px;
+}
+
+/* Tooltips */
+.stTooltipIcon {
+    color: var(--gs-blue);
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-top-color: var(--gs-blue) !important;
+}
+
+/* Custom metric styling */
+[data-testid="stMetricValue"] {
+    color: var(--gs-blue);
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+[data-testid="stMetricDelta"] svg {
+    fill: var(--gs-success);
+}
+
+[data-testid="stMetricDelta"][data-trend="down"] svg {
+    fill: var(--gs-danger);
+}
